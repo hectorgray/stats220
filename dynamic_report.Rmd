@@ -1,0 +1,190 @@
+---
+title: My dynamic report
+output: html_fragment
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=FALSE, message=FALSE, warning=FALSE, error=FALSE, fig.width = 7, fig.height = 5)
+
+library(tidyverse)
+
+logged_data <- read_csv("https://docs.google.com/spreadsheets/d/e/2PACX-1vRC-u_qDGb1sZOwzHDU0ov3I8_iep2Ut831G3BoJ5ocJSUZwZHMKKdtkVHlgkAuU5PIgSALFhGSYQpz/pub?gid=168641960&single=true&output=csv")
+
+latest_data <- logged_data %>%
+  rename(timestamp      = 1,
+         video_url      = 2,
+         channel_handle = 3,
+         video_length   = 4,
+         first_move     = 5,
+         response_e4    = 6,
+         response_d4    = 7,
+         game_result    = 8) %>% 
+  mutate(first_move = str_replace(first_move, "1\\.00E\\+04", "1. e4"))
+
+# Note: Some variables and code here differ slightly from exploration.R.
+# Comments already explained in that file have been omitted for clarity.
+# Any new additions are commented below. Some values that were previously printed directly are now stored in variables for use in dynamic text.
+```
+
+```{css, echo=FALSE}
+body {color: #f8f8f2;
+      background-color: #1a1a1a;
+      font-family: "Segoe UI"}
+
+a {color: #4fc3f7}
+```
+
+# Analysis of Chess YouTube Videos
+
+This report explores a continuously updated dataset of chess YouTube videos, combining video metadata with game information. The data was collected via Google Forms, with each entry corresponding to a single video that a respondent watched.
+
+The analysis focuses on both **viewing patterns** and **gameplay trends**, addressing questions such as:
+
+- Which content creators are most frequently watched?
+- How long are the chess videos?
+- What are the most common opening moves shown in videos?
+
+Let's dive in!
+
+## Game Metadata
+
+```{r}
+latest_data %>% 
+  ggplot(aes(x    = video_length,
+             fill = channel_handle)) +
+  geom_histogram(bins   = 10,
+                 colour = "black") + 
+  labs(title = "Distribution of Video Duration by YouTube Channel",
+       x     = "Minutes",
+       y     = "Number of videos",
+       fill  = "Channel") +
+  theme_bw()
+
+latest_data %>% 
+  ggplot(aes(x    = channel_handle,
+             fill = channel_handle)) +
+  geom_bar(colour = "black") +
+  labs(title = "Count of Watched Videos by YouTube Channel",
+        x     = "Channel",
+        y     = "Number of videos") +
+  theme_bw() +
+  theme(legend.position = "none")
+
+total_videos      <- length(latest_data$video_length)
+median_duration   <- median(latest_data$video_length)
+min_duration      <- min(latest_data$video_length)
+
+video_length_hours <- latest_data$video_length / 60
+max_duration       <- round(max(video_length_hours), 2) # rounding for display purposes
+
+top_channel <- latest_data %>% 
+  count(channel_handle) %>% 
+  arrange(desc(n)) %>% 
+  slice(1)
+
+top_channel_videos <- latest_data %>% # we will provide a dynamic YouTube URL for interactivity
+  filter(channel_handle == top_channel$channel_handle) # only videos by the top channel
+
+set.seed(Sys.time()) # ensures random video selection
+sample_video <- sample(top_channel_videos$video_url, 1)
+```
+
+The dataset contains `r total_videos` YouTube chess videos. The median video length is `r median_duration` minutes, with durations ranging from `r min_duration` minutes to `r max_duration` hours.
+
+The most featured channel is `r top_channel$channel_handle`, with `r top_channel$n` entries recorded. Watch one of their videos [here](`r sample_video`).
+
+## Game Information
+
+```{r}
+response_summary <- latest_data %>%
+  mutate(response = case_when(first_move == "1. e4" ~ response_e4,
+                              first_move == "1. d4" ~ response_d4,
+                              TRUE ~ NA)) %>% 
+  group_by(first_move, response) %>% 
+  summarise(games       = n(),
+            wins_white  = sum(game_result == "1-0"),
+            draws       = sum(game_result == "1/2-1/2"),
+            wins_black  = sum(game_result == "0-1")) %>%
+  mutate(play_rate = round(games / sum(games) * 100, 2)) %>%
+  ungroup() %>%
+  mutate(win_rate_white = round(wins_white / games * 100, 2),
+         win_rate_black = round(wins_black / games * 100, 2)) %>% 
+  arrange(desc(games))
+
+first_move_summary <- response_summary %>% 
+  group_by(first_move) %>% 
+  summarise(first_move_games = sum(games),
+            wins_white       = sum(wins_white),
+            draws            = sum(draws),
+            wins_black       = sum(wins_black),
+            play_rate        = round(sum(games) / sum(response_summary$games) * 100, 2)) %>%
+  ungroup() %>% 
+  mutate(win_rate_white = round(wins_white / first_move_games * 100, 2),
+         win_rate_black = round(wins_black / first_move_games * 100, 2)) %>% 
+  rename(games = first_move_games) %>%
+  arrange(desc(games))
+
+response_summary <- response_summary %>%
+  filter(!is.na(response))
+
+first_move_summary %>% 
+  ggplot(aes(x    = first_move,
+             y    = play_rate,
+             fill = win_rate_white)) +
+  geom_bar(stat   = "identity",
+           colour = "black") + 
+  scale_fill_gradient(low = "lightgreen",
+                      high = "darkgreen") +
+  labs(title = "White's Play and Win Rate by First Move",
+       x     = "First move",
+       y     = "Play rate (%)",
+       fill  = "Win rate (%)") +
+  theme_bw()
+
+response_summary %>%
+  ggplot(aes(x    = response,
+             y    = play_rate,
+             fill = win_rate_black)) +
+  geom_bar(stat   = "identity",
+           colour = "black") +
+  facet_wrap(~ first_move, 
+             scales = "free_x") +
+  scale_fill_gradient(low  = "lightgreen", 
+                      high = "darkgreen") +
+  labs(title = "Black's Play and Win Rate by Response to First Move",
+       x     = "Response",
+       y     = "Play rate (%)",
+       fill  = "Win rate (%)") +
+  theme_bw()
+
+popular_first_move <- first_move_summary %>% 
+  slice(1)
+
+popular_response_e4 <- response_summary %>% 
+  filter(first_move == "1. e4") %>% 
+  slice(1)
+
+popular_response_d4 <- response_summary %>% 
+  filter(first_move == "1. d4") %>% 
+  slice(1)
+
+best_first_move <- first_move_summary %>% 
+  arrange(desc(win_rate_white)) %>%
+  slice(1)
+
+best_response_e4 <- response_summary %>% 
+  filter(first_move == "1. e4") %>% 
+  arrange(desc(win_rate_black)) %>% 
+  slice(1)
+
+best_response_d4 <- response_summary %>% 
+  filter(first_move == "1. d4") %>% 
+  arrange(desc(win_rate_black)) %>% 
+  slice(1)
+```
+
+White usually opens with `r popular_first_move$first_move`. `r ifelse(popular_first_move$first_move == best_first_move$first_move, "It also has the highest win rate for White.", paste("However,", best_first_move$first_move, "has the highest win rate."))`
+
+In response to 1. e4, the most common reply is `r popular_response_e4$response`, `r ifelse(popular_response_e4$response == best_response_e4$response, "which also has the best win rate for Black.", paste("but", best_response_e4$response, "scores best."))`
+
+In response to 1. d4, the most common reply is `r popular_response_d4$response`, `r ifelse(popular_response_d4$response == best_response_d4$response, "which also has the best win rate for Black.", paste("but", best_response_d4$response, "scores best."))`
