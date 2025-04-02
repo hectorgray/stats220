@@ -44,8 +44,6 @@ The analysis focuses on both **viewing patterns** and **gameplay trends**, addre
 - How long are the chess videos?
 - What are the most common opening moves shown in videos?
 
-Let's dive in!
-
 ## Game Metadata
 
 ```{r}
